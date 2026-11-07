@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Пульт LG BH9530</string>
+    <string name="no_ir">В этом телефоне нет ИК-передатчика — управлять кинотеатром не получится.</string>
+    <string name="hint">Направьте верх телефона на кинотеатр. VOL и стрелки можно удерживать.</string>
+</resources>
