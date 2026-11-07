@@ -3,17 +3,20 @@ package com.mb.bh9530remote
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.hardware.ConsumerIrManager
 import android.os.Bundle
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
-import android.widget.Button
+import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.mb.bh9530remote.Bh9530.Key
@@ -27,47 +30,46 @@ class MainActivity : Activity() {
     private val sender = Executors.newSingleThreadScheduledExecutor()
     private var repeating: ScheduledFuture<*>? = null
 
-    /** Раскладка как на штатном пульте; null — пустое место. */
-    private val rows: List<List<Key?>> = listOf(
-        listOf(Key.POWER, null, Key.OPEN_CLOSE),
-        listOf(Key.FUNCTION, Key.OPTICAL, Key.SLEEP),
-        listOf(Key.SOUND_EFFECT, Key.SPEAKER_LEVEL, Key.REC),
-        listOf(Key.N1, Key.N2, Key.N3),
-        listOf(Key.N4, Key.N5, Key.N6),
-        listOf(Key.N7, Key.N8, Key.N9),
-        listOf(Key.CLEAR, Key.N0, Key.REPEAT),
-        listOf(Key.HOME, Key.INFO, Key.DISC_MENU, Key.TITLE_POPUP),
-        listOf(null, Key.UP, null),
-        listOf(Key.LEFT, Key.ENTER, Key.RIGHT),
-        listOf(Key.BACK, Key.DOWN, null),
-        listOf(Key.PREV, Key.REW, Key.FF, Key.NEXT),
-        listOf(Key.STOP, Key.PLAY, Key.PAUSE),
-        listOf(Key.VOL_DOWN, Key.MUTE, Key.VOL_UP),
-        listOf(Key.RED, Key.GREEN, Key.YELLOW, Key.BLUE),
-        listOf(Key.AUDIO, Key.SUBTITLE),
-    )
+    private val bgTop = Color.rgb(30, 32, 44)
+    private val bgBottom = Color.rgb(10, 11, 16)
+    private val card = Color.rgb(38, 41, 56)
+    private val cardStroke = Color.rgb(56, 60, 80)
+    private val accent = Color.rgb(140, 160, 255)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ir = (getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager)
             ?.takeIf { it.hasIrEmitter() }
+        window.statusBarColor = bgTop
+        window.navigationBarColor = bgBottom
 
-        val column = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            gravity = Gravity.CENTER_HORIZONTAL
+            fitsSystemWindows = true
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(bgTop, bgBottom))
         }
-        column.addView(TextView(this).apply {
-            text = getString(if (ir == null) R.string.no_ir else R.string.hint)
-            setTextColor(if (ir == null) Color.rgb(255, 120, 120) else Color.LTGRAY)
-            textSize = 14f
-            setPadding(0, 0, 0, dp(12))
-        })
-        for (row in rows) column.addView(buildRow(row))
 
-        setContentView(ScrollView(this).apply {
-            setBackgroundColor(Color.rgb(18, 18, 20))
-            addView(column)
-        })
+        root.addView(space())
+        root.addView(powerButton(), LinearLayout.LayoutParams(dp(128), dp(128)))
+        root.addView(space())
+
+        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; isBaselineAligned = false }
+        for (key in listOf(Key.FUNCTION, Key.SOUND_EFFECT, Key.SPEAKER_LEVEL)) {
+            modes.addView(
+                keyView(key, key.label, 13f, roundRect(card, dp(22))).apply { letterSpacing = 0.08f },
+                LinearLayout.LayoutParams(0, dp(104), 1f).apply { setMargins(dp(6), 0, dp(6), 0) },
+            )
+        }
+        root.addView(modes, matchWidth())
+        root.addView(space())
+
+        root.addView(caption("VOLUME"), matchWidth())
+        root.addView(volumeBar(), matchWidth(dp(84)))
+        root.addView(space())
+
+        setContentView(root)
     }
 
     override fun onDestroy() {
@@ -75,30 +77,58 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun buildRow(keys: List<Key?>): LinearLayout {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        for (key in keys) {
-            val lp = LinearLayout.LayoutParams(0, dp(56), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
-            row.addView(if (key == null) View(this) else buildButton(key), lp)
-        }
-        return row
+    private fun powerButton(): View = ImageButton(this).apply {
+        setImageResource(R.drawable.ic_power)
+        contentDescription = Key.POWER.name
+        elevation = dp(10).toFloat()
+        val shape = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.rgb(255, 92, 108), Color.rgb(196, 28, 52)),
+        ).apply { shape = GradientDrawable.OVAL }
+        background = ripple(shape)
+        bindKey(this, Key.POWER)
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    private fun buildButton(key: Key): Button = Button(this).apply {
-        text = key.label
-        contentDescription = key.name
-        isAllCaps = false
-        textSize = if (key.label.length <= 2) 22f else 12f
-        setTextColor(Color.WHITE)
-        setPadding(0, 0, 0, 0)
-        background = GradientDrawable().apply {
-            cornerRadius = dp(14).toFloat()
-            setColor(colorFor(key))
+    /** Одна «таблетка»: − | MUTE | +. */
+    private fun volumeBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = roundRect(card, dp(42))
+            clipToOutline = true
+            elevation = dp(4).toFloat()
         }
+        val segment = { key: Key, size: Float -> keyView(key, key.label, size, null) }
+        bar.addView(segment(Key.VOL_DOWN, 34f), LinearLayout.LayoutParams(0, -1, 1f))
+        bar.addView(divider(), LinearLayout.LayoutParams(dp(1), -1).apply { setMargins(0, dp(18), 0, dp(18)) })
+        bar.addView(segment(Key.MUTE, 13f).apply { setTextColor(accent); letterSpacing = 0.12f }, LinearLayout.LayoutParams(0, -1, 1f))
+        bar.addView(divider(), LinearLayout.LayoutParams(dp(1), -1).apply { setMargins(0, dp(18), 0, dp(18)) })
+        bar.addView(segment(Key.VOL_UP, 34f), LinearLayout.LayoutParams(0, -1, 1f))
+        return bar
+    }
+
+    private fun keyView(key: Key, label: String, size: Float, shape: GradientDrawable?): TextView =
+        TextView(this).apply {
+            text = label
+            contentDescription = key.name
+            gravity = Gravity.CENTER
+            textSize = size
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Color.WHITE)
+            isClickable = true
+            background = if (shape != null) {
+                elevation = dp(4).toFloat()
+                ripple(shape)
+            } else {
+                RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), null, null)
+            }
+            bindKey(this, key)
+        }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun bindKey(view: View, key: Key) {
         if (key.repeat) {
             // Удержание: повторяем кадр каждые 110 мс, как штатный пульт.
-            setOnTouchListener { v, e ->
+            view.setOnTouchListener { v, e ->
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> {
                         v.isPressed = true
@@ -111,7 +141,7 @@ class MainActivity : Activity() {
                 true
             }
         } else {
-            setOnClickListener {
+            view.setOnClickListener {
                 it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 sender.execute { transmit(key) }
             }
@@ -141,15 +171,29 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun colorFor(key: Key): Int = when (key) {
-        Key.POWER -> Color.rgb(200, 40, 50)
-        Key.RED -> Color.rgb(210, 50, 50)
-        Key.GREEN -> Color.rgb(40, 160, 70)
-        Key.YELLOW -> Color.rgb(220, 180, 30)
-        Key.BLUE -> Color.rgb(40, 90, 210)
-        Key.ENTER -> Color.rgb(90, 90, 110)
-        else -> Color.rgb(48, 48, 56)
+    private fun roundRect(color: Int, radius: Int) = GradientDrawable().apply {
+        cornerRadius = radius.toFloat()
+        setColor(color)
+        setStroke(dp(1), cardStroke)
     }
+
+    private fun ripple(content: Drawable) = RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), content, null)
+
+    private fun caption(text: String) = TextView(this).apply {
+        this.text = text
+        textSize = 11f
+        letterSpacing = 0.3f
+        gravity = Gravity.CENTER
+        setTextColor(Color.rgb(120, 126, 150))
+        setPadding(0, 0, 0, dp(10))
+    }
+
+    private fun divider() = View(this).apply { setBackgroundColor(cardStroke) }
+
+    private fun space() = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, 0, 1f) }
+
+    private fun matchWidth(height: Int = LinearLayout.LayoutParams.WRAP_CONTENT) =
+        LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, height)
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 }
