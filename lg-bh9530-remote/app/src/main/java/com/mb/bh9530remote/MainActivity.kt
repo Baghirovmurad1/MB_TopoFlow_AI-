@@ -13,6 +13,7 @@ import android.hardware.ConsumerIrManager
 import android.os.Bundle
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
@@ -29,6 +30,7 @@ class MainActivity : Activity() {
     private var ir: ConsumerIrManager? = null
     private val sender = Executors.newSingleThreadScheduledExecutor()
     private var repeating: ScheduledFuture<*>? = null
+    private val volumeViews = HashMap<Key, View>()
 
     private val bgTop = Color.rgb(30, 32, 44)
     private val bgBottom = Color.rgb(10, 11, 16)
@@ -72,6 +74,35 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
+    /** Боковые кнопки громкости телефона управляют громкостью кинотеатра. */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val key = sideKey(keyCode) ?: return super.onKeyDown(keyCode, event)
+        if (event.repeatCount == 0) {
+            volumeViews[key]?.isPressed = true
+            startRepeat(key)
+        }
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val key = sideKey(keyCode) ?: return super.onKeyUp(keyCode, event)
+        volumeViews[key]?.isPressed = false
+        stopRepeat()
+        return true
+    }
+
+    private fun sideKey(keyCode: Int): Key? = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP -> Key.VOL_UP
+        KeyEvent.KEYCODE_VOLUME_DOWN -> Key.VOL_DOWN
+        else -> null
+    }
+
+    override fun onPause() {
+        stopRepeat()
+        volumeViews.values.forEach { it.isPressed = false }
+        super.onPause()
+    }
+
     override fun onDestroy() {
         sender.shutdownNow()
         super.onDestroy()
@@ -97,7 +128,7 @@ class MainActivity : Activity() {
             clipToOutline = true
             elevation = dp(4).toFloat()
         }
-        val segment = { key: Key, size: Float -> keyView(key, key.label, size, null) }
+        val segment = { key: Key, size: Float -> keyView(key, key.label, size, null).also { volumeViews[key] = it } }
         bar.addView(segment(Key.VOL_DOWN, 34f), LinearLayout.LayoutParams(0, -1, 1f))
         bar.addView(divider(), LinearLayout.LayoutParams(dp(1), -1).apply { setMargins(0, dp(18), 0, dp(18)) })
         bar.addView(segment(Key.MUTE, 13f).apply { setTextColor(accent); letterSpacing = 0.12f }, LinearLayout.LayoutParams(0, -1, 1f))
